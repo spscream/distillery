@@ -20,7 +20,7 @@ my_readlink_f() {
         cd $(dirname "$TARGET_FILE")
         TARGET_FILE=$(basename "$TARGET_FILE")
     done
-    # Compute the canonicalized name by finding the physical path 
+    # Compute the canonicalized name by finding the physical path
     # for the directory we're in and appending the target file.
     PHYS_DIR=$(pwd -P)
     RESULT="$PHYS_DIR/$TARGET_FILE"
@@ -81,10 +81,10 @@ RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_MUTABLE_DIR/log}"
 EXTRA_OPTS=""
 
 # Pre-start/stop event hook paths
-PRE_START_HOOK="$REL_DIR/hooks/pre_start"
-POST_START_HOOK="$REL_DIR/hooks/post_start"
-PRE_STOP_HOOK="$REL_DIR/hooks/pre_stop"
-POST_STOP_HOOK="$REL_DIR/hooks/post_stop"
+PRE_START_HOOKS="$REL_DIR/hooks/pre_start.d"
+POST_START_HOOKS="$REL_DIR/hooks/post_start.d"
+PRE_STOP_HOOKS="$REL_DIR/hooks/pre_stop.d"
+POST_STOP_HOOKS="$REL_DIR/hooks/post_stop.d"
 
 # Get node pid
 get_pid() {
@@ -207,6 +207,15 @@ _replace_os_vars() {
             }
         }1' < "$1" > "$1.bak"
     mv -- "$1.bak" "$1"
+}
+
+# Private. Run hooks from directory.
+_run_hooks_from_dir() {
+   if [ -d "$1" ]; then
+          for s in $(find "$1" -name "*.sh" -print | sort); do
+            . "$s"
+          done
+   fi
 }
 
 # If ERTS_VSN is not set, detect it
@@ -351,7 +360,7 @@ case "$1" in
         ARGS="$@"
         RUN_PARAM="$@"
 
-        [ -f "$PRE_START_HOOK" ] && . "$PRE_START_HOOK"
+        _run_hooks_from_dir "$PRE_START_HOOKS"
 
         # Set arguments for the heart command
         set -- "$SCRIPT_DIR/$REL_NAME" "$HEART_OPTION"
@@ -366,11 +375,11 @@ case "$1" in
         "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
                           "$(_start_command)"
 
-        [ -f "$POST_START_HOOK" ] && . "$POST_START_HOOK"
+        _run_hooks_from_dir "$POST_START_HOOKS"
         ;;
 
     stop)
-        [ -f "$PRE_STOP_HOOK" ] && . "$PRE_STOP_HOOK"
+        _run_hooks_from_dir "$PRE_STOP_HOOKS"
         # Wait for the node to completely stop...
         PID="$(get_pid)"
         if ! nodetool "stop"; then
@@ -380,11 +389,11 @@ case "$1" in
         do
             sleep 1
         done
-        [ -f "$POST_STOP_HOOK" ] && . "$POST_STOP_HOOK"
+        _run_hooks_from_dir "$POST_STOP_HOOKS"
         ;;
 
     restart)
-        [ -f "$PRE_START_HOOK" ] && . "$PRE_START_HOOK"
+        _run_hooks_from_dir "$PRE_START_HOOKS"
         ## Restart the VM without exiting the process
         if ! nodetool "restart"; then
             exit 1
@@ -392,7 +401,7 @@ case "$1" in
         ;;
 
     reboot)
-        [ -f "$PRE_START_HOOK" ] && . "$PRE_START_HOOK"
+        _run_hooks_from_dir "$PRE_START_HOOKS"
         ## Restart the VM completely (uses heart to restart it)
         if ! nodetool "reboot"; then
             exit 1
@@ -514,8 +523,7 @@ case "$1" in
         # Start the VM, executing pre_start hook along
         # the way. We can't run the post_start hook because
         # the console will crash with no TTY attached
-        [ -f "$PRE_START_HOOK" ] && . "$PRE_START_HOOK"
-
+        _run_hooks_from_dir "$PRE_START_HOOKS"
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
         set -- "$BINDIR/erlexec" \
@@ -563,7 +571,7 @@ case "$1" in
         ARGS="$@"
 
         # Start the VM, executing pre and post start hooks
-        [ -f "$PRE_START_HOOK" ] && . "$PRE_START_HOOK"
+        _run_hooks_from_dir "$PRE_START_HOOKS"
 
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
@@ -586,7 +594,7 @@ case "$1" in
 
         "$@" -- ${1+$ARGS} &
         __bg_pid=$!
-        [ -f "$POST_START_HOOK" ] && . "$POST_START_HOOK"
+        _run_hooks_from_dir "$POST_START_HOOKS"
         wait $__bg_pid
         ;;
     rpc)
